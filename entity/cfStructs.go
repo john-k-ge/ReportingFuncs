@@ -86,3 +86,20 @@ type OrgServiceEntity struct {
 	Service_url      string
 	ServiceName      string
 }
+
+type QuotaResponse struct {
+	Total_Results int
+	Total_Pages   int
+	Prev_Url      string
+	Next_Url      string
+	Resources     []QuotaResource
+}
+
+type QuotaResource struct {
+	Metadata CFMetadata
+	Entity   QuotaEntity
+}
+
+type QuotaEntity struct {
+	Name string
+}

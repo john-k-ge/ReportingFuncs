@@ -1,6 +1,7 @@
 package funcs
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,28 +10,25 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"reportingFuncs/entity"
-	"reportingFuncs/popConstants"
-	"strings"
-
-	"strconv"
-
-	"bufio"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/john-k-ge/oauth2"
+	"github.com/john-k-ge/reportingFuncs/entity"
+	"github.com/john-k-ge/reportingFuncs/popConstants"
+	cfUrl "github.com/john-k-ge/reportingFuncs/urls"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
-const (
-	resultsPerPage = 50
-)
-
-var (
-	orgApiPath = "/v2/organizations?order-direction=asc&page=%d&results-per-page=" + strconv.Itoa(resultsPerPage)
-	orgMemUtil = "/v2/organizations/%v/memory_usage"
-)
+//const (
+//	resultsPerPage = 50
+//)
+//
+//var (
+//	orgApiPath = "/v2/organizations?order-direction=asc&page=%d&results-per-page=" + strconv.Itoa(resultsPerPage)
+//	orgMemUtil = "/v2/organizations/%v/memory_usage"
+//)
 
 type ReportingHelper struct {
 	uaaConfig   *oauth2.Config
@@ -147,9 +145,9 @@ func (rh *ReportingHelper) genCFHttpF() func(requestUrl *url.URL) []byte {
 }
 
 func (rh *ReportingHelper) GetPageCount() (int, error) {
-	pageCountUrl, err := url.Parse(fmt.Sprintf(rh.pop.Api+orgApiPath, 1))
+	pageCountUrl, err := url.Parse(fmt.Sprintf(rh.pop.Api+cfUrl.OrgApiPath, 1))
 	if err != nil {
-		log.Printf("Failed to parse org page URL `%v`: %v", rh.pop.Api+orgApiPath, err)
+		log.Printf("Failed to parse org page URL `%v`: %v", rh.pop.Api+cfUrl.OrgApiPath, err)
 		panic("Failed to parse org page URL " + err.Error())
 	}
 
@@ -209,9 +207,9 @@ func (rh *ReportingHelper) GenOrgPageF() func(*url.URL) []*entity.OrgInfo {
 func (rh *ReportingHelper) GenMemUtilF() func(string) int {
 	cfHttpCall := rh.genCFHttpF()
 	return func(guid string) int {
-		memUtilUrl, err := url.Parse(rh.pop.Api + fmt.Sprintf(orgMemUtil, guid))
+		memUtilUrl, err := url.Parse(rh.pop.Api + fmt.Sprintf(cfUrl.OrgMemUtil, guid))
 		if err != nil {
-			log.Printf("Failed to parse memutil url `%v`: %v", rh.pop.Api+fmt.Sprintf(orgMemUtil, guid), err)
+			log.Printf("Failed to parse memutil url `%v`: %v", rh.pop.Api+fmt.Sprintf(cfUrl.OrgMemUtil, guid), err)
 			panic("Failed to parse memutil url: " + err.Error())
 		}
 
@@ -264,40 +262,86 @@ func (rh *ReportingHelper) GenMemQuotaF() func(*entity.OrgInfo) (string, int) {
 	}
 }
 
-func (rh *ReportingHelper) GenOrgUserF() func(info *entity.OrgInfo) map[string]string {
+func (rh *ReportingHelper) GenOrgUserF() func(string) map[string]string {
 	cfHttpCall := rh.genCFHttpF()
-	return func(org *entity.OrgInfo) map[string]string {
-		managerUrl, err := url.Parse(rh.pop.Api + org.Managers_url)
+	return func(getUserPath string) map[string]string {
+		userUrl, err := url.Parse(rh.pop.Api + getUserPath)
+		if err != nil {
+			log.Printf("Failed to parse user url `%v`: %v", rh.pop.Api+getUserPath, err)
+			panic("Failed to parse user url: " + err.Error())
+		}
+		userContent := cfHttpCall(userUrl)
+		var usersResponse entity.OrgUserResponse
 
-		managerContent := cfHttpCall(managerUrl)
-		var managersResponse entity.OrgUserResponse
-
-		err = json.Unmarshal(managerContent, &managersResponse)
+		err = json.Unmarshal(userContent, &usersResponse)
 		if err != nil {
 			log.Printf("oh-oh: %v", err)
 			panic("couldn't unmarshall response!!")
 		}
 
-		managerMap := make(map[string]string)
-		for _, manager := range managersResponse.Resources {
-			managerMap[manager.Metadata.Guid] = manager.Entity.Username
+		userMap := make(map[string]string)
+		for _, user := range usersResponse.Resources {
+			if len(user.Entity.Username) > 0 {
+				userMap[user.Metadata.Guid] = user.Entity.Username
+			}
 		}
-		return managerMap
+		return userMap
 	}
 }
 
 func (rh *ReportingHelper) GenOrgUrlListF() func(int) []*url.URL {
-	var urls []*url.URL
-
 	return func(max int) []*url.URL {
+		var urls []*url.URL
 		for i := 1; i <= max; i++ {
-			orgPageUrl, err := url.Parse(fmt.Sprintf(rh.pop.Api+orgApiPath, i))
+			orgPageUrl, err := url.Parse(fmt.Sprintf(rh.pop.Api+cfUrl.OrgApiPath, i))
 			if err != nil {
-				log.Printf("Failed to parse URL `%v`: %v", fmt.Sprintf(rh.pop.Api+orgApiPath, i), err)
+				log.Printf("Failed to parse URL `%v`: %v", fmt.Sprintf(rh.pop.Api+cfUrl.OrgApiPath, i), err)
 				panic("failed to parse org page url: " + err.Error())
 			}
 			urls = append(urls, orgPageUrl)
 		}
 		return urls
+	}
+}
+
+func (rh *ReportingHelper) GenGetQuotaF() func(string) string {
+	cfHttpCall := rh.genCFHttpF()
+	return func(quotaName string) string {
+		quotaUrl, err := url.Parse(rh.pop.Api + fmt.Sprintf(cfUrl.QuotaNamePath, quotaName))
+		if err != nil {
+			log.Printf("Failed to parse quota url `%v`: %v", rh.pop.Api+fmt.Sprintf(cfUrl.QuotaNamePath, quotaName), err)
+			panic("Failed to parse quota url: " + err.Error())
+		}
+
+		quotaContent := cfHttpCall(quotaUrl)
+
+		var quotaResp entity.QuotaResponse
+		err = json.Unmarshal(quotaContent, &quotaResp)
+
+		if err != nil {
+			log.Printf("Failed to unmarshal Cancelled response: %v", err)
+			log.Printf("%s", quotaContent)
+			panic("Failed to unmarshal Cancelled response")
+		}
+		var result string
+		num := len(quotaResp.Resources)
+		switch num {
+		case 1:
+			log.Printf("Only 1 quota found: %v, %v", quotaResp.Resources[0].Entity.Name, quotaResp.Resources[0].Metadata.Guid)
+			result = quotaResp.Resources[0].Metadata.Guid
+
+		default:
+			log.Printf("Problem found:  %v quotas found", num)
+			if num >= 2 {
+				for _, q := range quotaResp.Resources {
+					log.Printf("\tName: %v, Guid: %v", q.Entity.Name, q.Metadata.Guid)
+				}
+			}
+			log.Print("Ambiguous case, so returning nothing")
+			result = ""
+		}
+
+		log.Printf("Returning `%v`", result)
+		return result
 	}
 }

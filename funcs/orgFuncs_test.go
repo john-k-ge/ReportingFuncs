@@ -3,9 +3,11 @@ package funcs
 import (
 	"log"
 	"net/url"
-	"reportingFuncs/entity"
-	"reportingFuncs/popConstants"
 	"testing"
+
+	"github.com/john-k-ge/oauth2"
+	"github.com/john-k-ge/reportingFuncs/entity"
+	"github.com/john-k-ge/reportingFuncs/popConstants"
 )
 
 const (
@@ -13,25 +15,17 @@ const (
 	//oneOrg       = "/v2/organizations?order-direction=asc&page=1&results-per-page=1"
 	fiftyOrgs    = "/v2/organizations?order-direction=asc&page=1&results-per-page=50"
 	knownGoodPoP = "ff"
-	ffPasscode   = "a2LcB7ah3r"
+	ffPasscode   = "3FCT7Xbk2e"
 )
 
-var sharedHelper *ReportingHelper
+var commonToken *oauth2.Token
 
-func initHelper() {
-	if sharedHelper == nil {
-		log.Print("Initializing sharedHelper...")
-		sharedHelper, _ := ReportingHelperFactory(knownGoodPoP)
-		var err error
-		sharedHelper.sharedToken, err = sharedHelper.passcodeLogon(ffPasscode)
-		if err != nil {
-			log.Printf("Failed to get token: %v", err)
-		}
-		if sharedHelper.sharedToken == nil {
-			log.Print("Shared token is nil!")
-		}
-
-		log.Printf(sharedHelper.sharedToken.AccessToken)
+func init() {
+	sharedHelper, _ := ReportingHelperFactory(knownGoodPoP)
+	var err error
+	commonToken, err = sharedHelper.passcodeLogon(ffPasscode)
+	if err != nil {
+		log.Printf("Failed to get token: %v", err)
 	}
 }
 
@@ -82,11 +76,12 @@ func Test_genCFHttpF_NilToken(t *testing.T) {
 //}
 
 func Test_genCFHttpF(t *testing.T) {
-	initHelper()
-	testCfHttp := sharedHelper.genCFHttpF()
-	testUrl, err := url.Parse(sharedHelper.pop.Api + "/info")
+	tester, _ := ReportingHelperFactory(knownGoodPoP)
+	tester.sharedToken = commonToken
+	testCfHttp := tester.genCFHttpF()
+	testUrl, err := url.Parse(tester.pop.Api + "/info")
 	if err != nil {
-		log.Printf("failed to parse url `%v`: %v", sharedHelper.pop.Api+"/info", err)
+		log.Printf("failed to parse url `%v`: %v", tester.pop.Api+"/info", err)
 		t.Fail()
 	}
 
@@ -101,8 +96,9 @@ func Test_genCFHttpF(t *testing.T) {
 }
 
 func Test_GetPageCount(t *testing.T) {
-	initHelper()
-	pageCount, err := sharedHelper.GetPageCount()
+	tester, _ := ReportingHelperFactory(knownGoodPoP)
+	tester.sharedToken = commonToken
+	pageCount, err := tester.GetPageCount()
 	if err != nil {
 		log.Printf("Failed to get page count: %v", err)
 		t.Fail()
@@ -114,12 +110,18 @@ func Test_GetPageCount(t *testing.T) {
 }
 
 func TestReportingHelper_GenOrgUrlListF(t *testing.T) {
-	initHelper()
-	orgUrlGen := sharedHelper.GenOrgUrlListF()
+	tester, _ := ReportingHelperFactory(knownGoodPoP)
+	tester.sharedToken = commonToken
+	orgUrlGen := tester.GenOrgUrlListF()
 	onePage := orgUrlGen(1)
 	twoPages := orgUrlGen(2)
 	if len(onePage) != 1 || len(twoPages) != 2 {
-		log.Printf("Not enough URLs generated")
+		log.Printf("Incorrect number of URLs generated")
+		log.Printf("Len onePage: %v", len(onePage))
+		log.Printf("Len twoPages: %v", len(twoPages))
+		for i, url := range twoPages {
+			log.Printf("#%v: %v", i, url.String())
+		}
 		t.Fail()
 	}
 	if onePage[0].String() != ffApiUrl+fiftyOrgs {
@@ -131,8 +133,9 @@ func TestReportingHelper_GenOrgUrlListF(t *testing.T) {
 }
 
 func TestReportingHelper_GenMemUtilF(t *testing.T) {
-	initHelper()
-	testFunc := sharedHelper.GenMemUtilF()
+	tester, _ := ReportingHelperFactory(knownGoodPoP)
+	tester.sharedToken = commonToken
+	testFunc := tester.GenMemUtilF()
 	predixSupportFf := "6b132e42-295b-4ef2-9703-c37332ac6dbc"
 	mem := testFunc(predixSupportFf)
 	if mem != 6688 {
@@ -143,8 +146,9 @@ func TestReportingHelper_GenMemUtilF(t *testing.T) {
 }
 
 func TestReportingHelper_GenMemQuotaF(t *testing.T) {
-	initHelper()
-	testFunc := sharedHelper.GenMemQuotaF()
+	tester, _ := ReportingHelperFactory(knownGoodPoP)
+	tester.sharedToken = commonToken
+	testFunc := tester.GenMemQuotaF()
 	testOrg := &entity.OrgInfo{
 		Quota_guid: "e9fd1013-8b58-490d-bd41-fd88c0266370",
 		Quota_url:  "/v2/quota_definitions/e9fd1013-8b58-490d-bd41-fd88c0266370",
@@ -162,8 +166,9 @@ func TestReportingHelper_GenMemQuotaF(t *testing.T) {
 }
 
 func TestReportingHelper_GenOrgUserF(t *testing.T) {
-	initHelper()
-	testFunc := sharedHelper.GenOrgUserF()
+	tester, _ := ReportingHelperFactory(knownGoodPoP)
+	tester.sharedToken = commonToken
+	testFunc := tester.GenOrgUserF()
 	testOrg := &entity.OrgInfo{
 		Managers_url: "/v2/organizations/6b132e42-295b-4ef2-9703-c37332ac6dbc/managers",
 	}
